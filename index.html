@@ -1,18 +1,24 @@
+code
+Html
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <title>Моя первая 3D-сцена</title>
-    <style>
-        /* Убедитесь, что ваш canvas занимает весь экран */
-        body { margin: 0; overflow: hidden; } 
-    </style>
-    <!-- Подключаем Three.js с помощью CDN -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- ... (стили и метатеги) ... -->
+    
+    <!-- 1. Основная библиотека Three.js -->
+<!-- index.html -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://unpkg.com/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script> 
+<script src="https://unpkg.com/three@0.128.0/examples/js/loaders/RGBELoader.js"></script> 
+
+<!-- GSAP (Обязателен для плавной анимации камер) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+    
+ 
+    
 </head>
 <body>
-    <!-- Здесь будет отображаться 3D-сцена (в элементе canvas) -->
-
+    <!-- 3. Ваш код (должен идти последним) -->
     <script src="main.js"></script> 
 </body>
 </html>
