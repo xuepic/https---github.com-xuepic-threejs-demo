@@ -1,191 +1,266 @@
-// =========================================================
-// ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ
-// =========================================================
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { Water } from 'three/addons/objects/Water.js';
+import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 
-// Переменные для Мыши (Parallax)
-let mouseX = 0;
-let mouseY = 0;
-const parallaxInfluence = 0.5; // Насколько сильно камера реагирует на курсор
+// --- Константы ---
+const GLB_PATH = './assets/miromar_3d.glb';
+const HDRI_PATH = './assets/809-hdri-skies-com.hdr';
+const WATER_NORMALS_PATH = './assets/waternormals.jpg';
 
-// Переменные для Скролла
-let isAnimating = false; 
-let currentSection = 0;
-let cameraPositions = []; // Позиции и ротации камер GLTF
+const SCALE_FACTOR = 100.0; 
+const TARGET_POINT = new THREE.Vector3(0, 0, 0); 
+const SCROLL_ANIMATION_DISTANCE = 3000; 
 
+const cameraFOV = 50; 
+let animationActions = []; 
+let animationDuration = 0; 
 
-// =========================================================
-// ШАГ 1: ИНИЦИАЛИЗАЦИЯ И РЕНДЕРЕР
-// =========================================================
+// --- Переменные для скролл-анимации ---
+let cameraStartProgramPos = new THREE.Vector3(); 
+let cameraStartProgramQuat = new THREE.Quaternion(); 
+let cameraOrbitEndPos = new THREE.Vector3(); 
+let cameraOrbitEndQuat = new THREE.Quaternion(); 
 
-const scene = new THREE.Scene(); 
-const renderer = new THREE.WebGLRenderer({ antialias: true }); 
-renderer.setSize(window.innerWidth, window.innerHeight); 
-document.body.appendChild(renderer.domElement);
-renderer.physicallyCorrectLights = true;
-
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000); 
-activeCamera = camera;
-
-
-// =========================================================
-// ШАГ 2: ОСВЕЩЕНИЕ (РУЧНОЕ + HDRI)
-// =========================================================
-
-const sunLight = new THREE.DirectionalLight(0xffffff, 20); 
-sunLight.position.set(50, 100, 50); 
-scene.add(sunLight);
-const ambientLight = new THREE.AmbientLight(0xffffff, 5); 
-scene.add(ambientLight);
-
-const pmremGenerator = new THREE.PMREMGenerator(renderer);
-new THREE.RGBELoader()
-    .load('assets/809-hdri-skies-com.hdr', function (texture) {
-        const envMap = pmremGenerator.fromEquirectangular(texture).texture;
-        scene.environment = envMap; 
-        scene.background = new THREE.Color(0x000000); 
-        pmremGenerator.dispose();
-    });
+// --- Основные переменные сцены ---
+let scene, renderer, clock, mixer = null;
+let rootGroup; 
+let activeCamera;
+let controls = null;
+let water = null;
 
 
-// =========================================================
-// ШАГ 3: ЗАГРУЗКА МОДЕЛИ И ПОЗИЦИЙ КАМЕР
-// =========================================================
+// --- 1. Инициализация и Загрузка Окружения ---
 
-const loader = new THREE.GLTFLoader();
-const modelPath = 'models/miromar_map_draft.gltf'; 
-
-loader.load(modelPath, function (gltf) {
-    const model = gltf.scene;
+function init() {
+    scene = new THREE.Scene();
     
-    // --- Сохраняем позиции и ротации всех камер ---
-    gltf.cameras.forEach(cam => {
-        cam.updateWorldMatrix(true, false);
-        
-        cameraPositions.push({
-            position: new THREE.Vector3().setFromMatrixPosition(cam.matrixWorld), // Мировая позиция
-            rotation: cam.rotation.clone() // Ротация
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
+    
+    document.getElementById('threejs-container').appendChild(renderer.domElement);
+
+    clock = new THREE.Clock();
+    
+    loadEnvironment();
+    loadModel();
+
+    window.addEventListener('resize', onWindowResize);
+    window.addEventListener('scroll', handleScroll); 
+    
+    animate(); 
+}
+
+function loadEnvironment() {
+    new RGBELoader()
+        .setDataType(THREE.FloatType)
+        .load(HDRI_PATH, (texture) => {
+            const pmremGenerator = new THREE.PMREMGenerator(renderer);
+            const envMap = pmremGenerator.fromEquirectangular(texture).texture;
+            
+            scene.environment = envMap; 
+            scene.background = new THREE.Color(0x1C1815); 
+            texture.dispose();
+            pmremGenerator.dispose();
         });
-    });
+}
 
-    if (cameraPositions.length >= 1) {
-        // Устанавливаем камеру в позицию первой секции
-        camera.position.copy(cameraPositions[0].position);
-        camera.rotation.copy(cameraPositions[0].rotation);
-    } else {
-        camera.position.set(200, 200, 200);
-        camera.lookAt(0, 0, 0); // Если камер нет, смотрим в центр
+
+// --- 2. Scroll-Driven Animation Logic ---
+
+function handleScroll() {
+    requestAnimationFrame(updateScrollAnimation);
+}
+
+function updateScrollAnimation() {
+    const scrollY = window.scrollY;
+    // Прогресс скролла (от 0 до 1)
+    const scrollProgress = Math.min(1, Math.max(0, scrollY / SCROLL_ANIMATION_DISTANCE));
+
+    if (activeCamera && cameraStartProgramPos.length() > 0) {
+        
+        // 1. Анимация Камеры (Переход от START_CAMERA к END_CAMERA)
+        activeCamera.position.copy(cameraStartProgramPos).lerp(cameraOrbitEndPos, scrollProgress);
+        activeCamera.quaternion.copy(cameraStartProgramQuat).slerp(cameraOrbitEndQuat, scrollProgress);
+        
+        // 2. Анимация Комплекса
+        if (mixer && animationActions.length > 0) {
+            const time = scrollProgress * animationDuration;
+            mixer.setTime(time);
+        }
+        
+        // 3. Активация OrbitControls
+        if (scrollProgress >= 1 && controls && !controls.enabled) {
+            controls.enabled = true;
+        }
     }
-
-    // --- Настройки модели ---
-    model.scale.set(100, 100, 100); 
-    model.position.set(0, 0, 0); 
-    scene.add(model);
     
-    model.traverse((child) => {
-        if (child.isMesh) {
-            child.castShadow = true; 
-            child.receiveShadow = true;
-            if (child.material.isMeshStandardMaterial) {
-                child.material.envMapIntensity = 1; 
-            }
+    if (controls) controls.update(); 
+}
+
+
+// --- 3. Загрузка GLB и Настройка Сцены ---
+
+function loadModel() {
+    const loader = new GLTFLoader();
+
+    loader.load(GLB_PATH, (gltf) => {
+        rootGroup = gltf.scene;
+        
+        // 1. Масштабирование
+        rootGroup.scale.set(SCALE_FACTOR, SCALE_FACTOR, SCALE_FACTOR);
+        scene.add(rootGroup);
+
+        const cameraStartNode = rootGroup.getObjectByName('START_CAMERA'); 
+        const cameraEndNode = rootGroup.getObjectByName('END_CAMERA'); 
+        const seaMesh = rootGroup.getObjectByName('Sea');
+        
+        // 2. Инициализация ActiveCamera (Старт с START_CAMERA)
+        
+        if (cameraStartNode && cameraEndNode) {
+            const exportedCameraComponent = cameraStartNode.children.find(c => c.isCamera);
+            
+            activeCamera = new THREE.PerspectiveCamera(
+                cameraFOV, 
+                window.innerWidth / window.innerHeight,
+                exportedCameraComponent ? exportedCameraComponent.near : 0.1,
+                exportedCameraComponent ? exportedCameraComponent.far : 3000
+            );
+
+            // A) СТАРТОВАЯ ПОЗИЦИЯ (из START_CAMERA)
+            cameraStartProgramPos.copy(cameraStartNode.position).multiplyScalar(SCALE_FACTOR);
+            cameraStartProgramQuat.copy(cameraStartNode.quaternion);
+            
+            // B) ЦЕЛЕВАЯ ПОЗИЦИЯ (из END_CAMERA)
+            cameraOrbitEndPos.copy(cameraEndNode.position).multiplyScalar(SCALE_FACTOR);
+            cameraOrbitEndQuat.copy(cameraEndNode.quaternion);
+            
+            // Установка камеры в начальную позицию
+            activeCamera.position.copy(cameraStartProgramPos);
+            activeCamera.quaternion.copy(cameraStartProgramQuat);
+
+            cameraStartNode.parent.remove(cameraStartNode); 
+            cameraEndNode.parent.remove(cameraEndNode); 
+            scene.add(activeCamera);
+            
+        } else {
+            console.error("Критическая ошибка: Камеры START_CAMERA или END_CAMERA не найдены.");
+            activeCamera = new THREE.PerspectiveCamera(cameraFOV, window.innerWidth / window.innerHeight, 0.1, 3000);
+            activeCamera.position.set(20 * SCALE_FACTOR, 5 * SCALE_FACTOR, 20 * SCALE_FACTOR); 
         }
-    });
-    console.log(`Найдено ${cameraPositions.length} секций.`);
-});
 
+        activeCamera.aspect = window.innerWidth / window.innerHeight;
+        activeCamera.updateProjectionMatrix();
 
-// =========================================================
-// ШАГ 4: ЛОГИКА ПЕРЕКЛЮЧЕНИЯ ПО СКРОЛЛУ
-// =========================================================
-
-function goToSection(index) {
-    if (isAnimating || index < 0 || index >= cameraPositions.length || index === currentSection) return;
-
-    isAnimating = true;
-    const target = cameraPositions[index];
-    const duration = 2.5;
-
-    // Анимация позиции 
-    gsap.to(camera.position, {
-        duration: duration,
-        x: target.position.x,
-        y: target.position.y,
-        z: target.position.z,
-        ease: "power2.inOut",
-    });
-
-    // Анимация поворота
-    gsap.to(camera.rotation, {
-        duration: duration,
-        x: target.rotation.x,
-        y: target.rotation.y,
-        z: target.rotation.z,
-        ease: "power2.inOut",
-        onComplete: () => {
-            isAnimating = false;
-            currentSection = index;
-            camera.rotation.copy(target.rotation);
+        // 3. Настройка OrbitControls
+        controls = new OrbitControls(activeCamera, renderer.domElement);
+        controls.target.copy(TARGET_POINT).multiplyScalar(SCALE_FACTOR); 
+        controls.enableDamping = true;
+        controls.enabled = false; 
+        controls.update();
+        
+        // 4. Обработка Анимации Комплекса (Синхронизация скроллом)
+        if (gltf.animations.length > 0) {
+            mixer = new THREE.AnimationMixer(rootGroup); 
+            
+            gltf.animations.forEach(clip => {
+                const action = mixer.clipAction(clip);
+                if (!clip.name.includes('CAMERA')) { 
+                    action.setEffectiveWeight(1.0); 
+                    action.enabled = true; 
+                    action.setLoop(THREE.LoopOnce);
+                    action.clampWhenFinished = true;
+                    action.play(); 
+                    action.paused = true; // СТАРТ НА ПАУЗЕ
+                    
+                    animationActions.push(action);
+                    animationDuration = Math.max(animationDuration, clip.duration);
+                }
+            });
+            mixer.setTime(0);
         }
+
+        // 5. Динамическая Вода
+        if (seaMesh) {
+            setupDynamicWater(seaMesh);
+        }
+
+    }, (xhr) => {
+        // ... (прогресс) ...
+    }, (error) => {
+        console.error('Ошибка загрузки GLB:', error);
     });
 }
 
-window.addEventListener('wheel', (event) => {
-    if (isAnimating || cameraPositions.length < 2) return; 
 
-    let newIndex = currentSection;
+// --- 4. Настройка Динамической Воды ---
+function setupDynamicWater(seaMesh) {
+    const waterWorldPosition = new THREE.Vector3();
+    seaMesh.getWorldPosition(waterWorldPosition);
+    seaMesh.parent.remove(seaMesh); 
 
-    if (event.deltaY > 0) {
-        newIndex = Math.min(currentSection + 1, cameraPositions.length - 1);
-    } else if (event.deltaY < 0) {
-        newIndex = Math.max(currentSection - 1, 0);
-    }
+    const waterSize = 10 * SCALE_FACTOR; 
+    const waterGeometry = new THREE.PlaneGeometry(waterSize, waterSize); 
 
-    goToSection(newIndex);
-}, { passive: false });
+    water = new Water(
+        waterGeometry,
+        {
+            textureWidth: 512,
+            textureHeight: 512,
+            waterNormals: new THREE.TextureLoader().load(WATER_NORMALS_PATH, function (texture) {
+                texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+            }),
+            sunDirection: new THREE.Vector3(0.5, 1.0, 0.5).normalize(),
+            waterColor: 0x00457d, 
+            distortionScale: 3.0,
+            size: 0.5 * SCALE_FACTOR 
+        }
+    );
+    
+    water.rotation.x = - Math.PI / 2;
+    water.position.copy(waterWorldPosition);
+    
+    scene.add(water);
+}
 
 
-// =========================================================
-// ШАГ 5: АНИМАЦИОННЫЙ ЦИКЛ (RENDER LOOP)
-// =========================================================
+// --- 5. Цикл Рендера ---
 
 function animate() {
-    requestAnimationFrame(animate); 
+    requestAnimationFrame(animate);
 
-    // --- Эффект Parallax (Только для первой камеры) ---
-    if (!isAnimating && currentSection === 0 && cameraPositions.length > 0) {
-        
-        // Берем исходную позицию первой камеры
-        const targetPosition = cameraPositions[0].position; 
+    const delta = clock.getDelta();
 
-        // Вычисляем, насколько нужно СМЕСТИТЬ камеру относительно ее исходной позиции
-        const offsetX = mouseX * parallaxInfluence;
-        const offsetY = mouseY * parallaxInfluence;
-        
-        // Применяем смещение
-        camera.position.x = targetPosition.x + offsetX;
-        camera.position.y = targetPosition.y + offsetY;
-        
-        // ВАЖНО: Ротация остается исходной (как в GLTF)
-        camera.rotation.copy(cameraPositions[0].rotation);
+    if (mixer) { 
+        mixer.update(0); 
     }
     
-    renderer.render(scene, camera);
+    if (water) {
+        water.material.uniforms['time'].value += delta * 0.5;
+    }
+
+    if (controls) { 
+        controls.update();
+    }
+
+    if (activeCamera) {
+        renderer.render(scene, activeCamera);
+    }
 }
 
-animate();
 
-
-// =========================================================
-// ШАГ 6: ОБРАБОТКА МЫШИ И РЕСАЙЗ
-// =========================================================
-
-window.addEventListener('mousemove', (event) => {
-    mouseX = (event.clientX / window.innerWidth) * 2 - 1;
-    mouseY = -(event.clientY / window.innerHeight) * 2 + 1;
-});
-
-window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix(); 
+function onWindowResize() {
     renderer.setSize(window.innerWidth, window.innerHeight);
-});
+    if (activeCamera) {
+        activeCamera.aspect = window.innerWidth / window.innerHeight;
+        activeCamera.updateProjectionMatrix();
+    }
+}
+
+
+document.addEventListener('DOMContentLoaded', init);

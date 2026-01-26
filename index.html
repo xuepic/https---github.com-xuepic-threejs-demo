@@ -1,24 +1,45 @@
-code
-Html
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
-    <!-- ... (стили и метатеги) ... -->
-    
-    <!-- 1. Основная библиотека Three.js -->
-<!-- index.html -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="https://unpkg.com/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script> 
-<script src="https://unpkg.com/three@0.128.0/examples/js/loaders/RGBELoader.js"></script> 
-
-<!-- GSAP (Обязателен для плавной анимации камер) -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
-    
- 
-    
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Miromar</title>
+    <style>
+        body { 
+            margin: 0; 
+            background-color: #1C1815;
+            height: 200vh; /* Возвращаем высоту для скролла */
+            overflow-x: hidden; 
+        }
+        #threejs-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            opacity: 1; /* ОТОБРАЖАЕМ сразу, но управление выключено */
+            z-index: 5;
+        }
+        #scroll-anchor {
+            height: 100vh;
+            width: 100%;
+            pointer-events: none;
+        }
+    </style>
 </head>
 <body>
-    <!-- 3. Ваш код (должен идти последним) -->
-    <script src="main.js"></script> 
+    <div id="scroll-anchor"></div>
+    <div id="threejs-container"></div>
+    
+    <script type="importmap">
+        {
+          "imports": {
+            "three": "https://unpkg.com/three@0.165.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.165.0/examples/jsm/",
+            "tween": "https://unpkg.com/@tweenjs/tween.js@20.0.3/dist/tween.esm.js"
+          }
+        }
+    </script>
+    <script type="module" src="main.js"></script>
 </body>
 </html>
