@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Miromar</title>
+    <title>3D Miromar Fixed Scene (Final)</title>
     <style>
         body { 
             margin: 0; 
-            background-color: #1C1815;
-            height: 200vh; /* Возвращаем высоту для скролла */
+            background-color: #1C1815; /* Темный фон для контраста */
+            height: 200vh; /* Для скролл-триггера */
             overflow-x: hidden; 
         }
         #threejs-container {
@@ -17,29 +17,28 @@
             left: 0;
             width: 100vw;
             height: 100vh;
-            opacity: 1; /* ОТОБРАЖАЕМ сразу, но управление выключено */
             z-index: 5;
         }
         #scroll-anchor {
-            height: 100vh;
+            height: 100vh; 
             width: 100%;
             pointer-events: none;
         }
     </style>
 </head>
 <body>
-    <div id="scroll-anchor"></div>
+    <div id="scroll-anchor"></div> 
     <div id="threejs-container"></div>
     
     <script type="importmap">
-        {
-          "imports": {
-            "three": "https://unpkg.com/three@0.165.0/build/three.module.js",
-            "three/addons/": "https://unpkg.com/three@0.165.0/examples/jsm/",
-            "tween": "https://unpkg.com/@tweenjs/tween.js@20.0.3/dist/tween.esm.js"
-          }
-        }
-    </script>
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.165.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.165.0/examples/jsm/",
+        "tween": "https://unpkg.com/@tweenjs/tween.js@20.0.3/dist/tween.esm.js"
+      }
+    }
+</script>
     <script type="module" src="main.js"></script>
 </body>
 </html>
